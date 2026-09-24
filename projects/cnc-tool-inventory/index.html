@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ToolDB — CNC Tool Inventory · Case Study | Brayner Santos</title>
+  <meta name="description" content="Case study: ToolDB, a self-hosted CNC tool-inventory app — badge-ID login, per-type custom attributes, per-location stock, CSV export. FastAPI + SQLite + React.">
+  <link rel="stylesheet" href="../../styles.css">
+  <link rel="icon" type="image/svg+xml" href="../../assets/favicon.svg">
+  <meta property="og:title" content="ToolDB — CNC Tool Inventory · Case Study">
+  <meta property="og:description" content="A self-hosted tool-inventory system for the shop floor, built by someone who has stood at the crib window.">
+</head>
+<body>
+  <header class="hero">
+    <div class="sheet-head">
+      <span class="mark">⌖</span>
+      <span class="sheet-label">SHEET 02 — CASE STUDY</span>
+      <span class="sheet-label right">BRAYNERSANTOS.COM</span>
+    </div>
+
+    <h1>ToolDB</h1>
+    <p class="tagline">CNC tool inventory for the shop floor — badge-ID login,
+       per-type tool attributes, and live quantities per location, self-hosted
+       on one Windows PC.</p>
+
+    <div class="dim"><span>ITEM 01 · REV 2026.09</span></div>
+
+    <div class="titleblock case-meta">
+      <div><span class="tb-label">Status</span><span class="tb-value">In production</span></div>
+      <div><span class="tb-label">Stack</span><span class="tb-value">FastAPI · SQLite</span></div>
+      <div><span class="tb-label">Interface</span><span class="tb-value">React (Vite)</span></div>
+      <div><span class="tb-label">Ships as</span><span class="tb-value">Portable exe</span></div>
+    </div>
+  </header>
+
+  <main>
+    <!-- hero visual -->
+    <figure class="shot">
+      <img src="img/search.png" width="2880" height="1800"
+           alt="ToolDB search page: a query for “end mill” filtered by type, department, and location, showing each tool’s key attributes, its locations with quantities, and total quantity">
+      <figcaption><span class="fig-no">FIG. 01</span> Search — every hit shows the
+         tool&rsquo;s type-specific attributes and exactly where stock is.</figcaption>
+    </figure>
+
+    <section class="cs-section">
+      <span class="view-tag">OVERVIEW</span>
+      <h2>What it is</h2>
+      <p>ToolDB is a self-hosted web application that tracks cutting tools,
+         holders, grinding wheels, and measuring equipment across a machine
+         shop. Employees log in with their badge ID, search tools by name,
+         description, or attribute, and see live quantities at every location.
+         Admins manage employees, departments, locations, and tool types —
+         each type carrying its own set of attributes — and export CSV,
+         print filtered lists, and download database backups.</p>
+      <p>It is the third iteration of the same idea: a desktop Python program,
+         then a Node/React web app, and now a FastAPI rewrite — ported
+         endpoint-for-endpoint and shipped as a single portable Windows
+         folder.</p>
+    </section>
+
+    <section class="cs-section">
+      <span class="view-tag">SECTION A–A</span>
+      <h2>The problem</h2>
+      <p>A machine shop&rsquo;s tooling doesn&rsquo;t sit still and doesn&rsquo;t
+         fit one mold. An end mill has a diameter, flute count, shank, and
+         coating. A grinding wheel has grit and bond type. A micrometer has a
+         range, a resolution, and a calibration date. A collet chuck has a
+         taper and a bore size. No single spreadsheet column list describes
+         them all — so the records that exist end up scattered: one sheet per
+         tool type, a notebook at the crib, and someone&rsquo;s memory.</p>
+      <p>The practical failure mode is always the same: a machinist needs a
+         Ø12&nbsp;mm 4-flute carbide end mill <em>now</em>, and the only way to
+         find out whether the shop has one — and where — is to walk the floor
+         and ask. I lived this problem at the crib window. ToolDB is the tool
+         I wished existed: one searchable place that knows what makes each
+         type of tool different, and exactly how many are at each location.</p>
+    </section>
+
+    <section class="cs-section">
+      <span class="view-tag">REQ TABLE</span>
+      <h2>Requirements &amp; constraints</h2>
+      <p>Every requirement below maps to something implemented in the
+         repository.</p>
+      <table class="spec-table">
+        <tbody>
+          <tr><th>Tool categories</th><td>Admins define tool types; each type carries its own attribute schema (text and number fields) — no fixed global schema</td></tr>
+          <tr><th>Locations</th><td>Locations belong to departments; stock is tracked per tool <em>per location</em>, never negative</td></tr>
+          <tr><th>Reorder point</th><td>Per-tool <code>reorder_min</code> drives low-stock badges on the full inventory list</td></tr>
+          <tr><th>Identification</th><td>Badge-ID login — no passwords on the floor; admin actions gated separately</td></tr>
+          <tr><th>Search &amp; filter</th><td>One query box matches name, description, and attribute values; dropdown filters by type, department, and location</td></tr>
+          <tr><th>Record editing</th><td>Create, edit, and delete tools; set per-location counts; full CRUD on types, departments, locations, employees (including bulk import)</td></tr>
+          <tr><th>Accountability</th><td>Every action is written to an activity log; each tool page shows its own history</td></tr>
+          <tr><th>Getting data out</th><td>RFC-4180 CSV export and print views for filtered lists; database backup via download</td></tr>
+          <tr><th>Deployment</th><td>One always-on Windows PC on the shop network, run by non-developers — no installer, no admin rights, no internet dependency</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="cs-section">
+      <span class="view-tag">SYSTEM</span>
+      <h2>How it fits together</h2>
+      <p>One process serves everything: FastAPI serves the built React app and
+         the JSON API on the same port, talking to a single SQLite database in
+         WAL mode. There is deliberately nothing else to run.</p>
+      <div class="arch" role="img" aria-label="Architecture: machinist’s badge → React single-page app → FastAPI API and static server → SQLite database (WAL) on the shop’s Windows PC">
+        <div class="arch-node"><span class="arch-k">OPERATOR</span>Badge ID</div>
+        <span class="arch-arrow" aria-hidden="true">→</span>
+        <div class="arch-node"><span class="arch-k">CLIENT</span>React SPA<span class="arch-sub">Vite build · react-router</span></div>
+        <span class="arch-arrow" aria-hidden="true">→</span>
+        <div class="arch-node"><span class="arch-k">SERVER</span>FastAPI<span class="arch-sub">uvicorn · port 3000 · API + static</span></div>
+        <span class="arch-arrow" aria-hidden="true">→</span>
+        <div class="arch-node"><span class="arch-k">STORAGE</span>SQLite<span class="arch-sub">WAL · one file · FK + CHECK constraints</span></div>
+      </div>
+      <p class="fine">Routers: auth · tools · tool-types · departments (+ locations) ·
+         employees · admin (config, backup) — each covered by the pytest API
+         suite.</p>
+    </section>
+
+    <section class="cs-section">
+      <span class="view-tag">DATA MODEL</span>
+      <h2>The schema — and the part that isn&rsquo;t fixed</h2>
+      <p>The relational half is conventional: six tables, real foreign keys,
+         CHECK constraints. The interesting half is the two JSON columns that
+         let each tool type define its own attributes without touching the
+         schema.</p>
+
+      <div class="schema-grid">
+        <div class="db-table">
+          <div class="db-name">employees</div>
+          <ul>
+            <li><span class="k">badge_id</span><span class="t">PK</span></li>
+            <li><span class="k">name</span></li>
+            <li><span class="k">active</span></li>
+            <li><span class="k">is_admin</span></li>
+          </ul>
+        </div>
+        <div class="db-table">
+          <div class="db-name">departments</div>
+          <ul>
+            <li><span class="k">id</span><span class="t">PK</span></li>
+            <li><span class="k">name</span><span class="t">UNIQUE</span></li>
+          </ul>
+        </div>
+        <div class="db-table">
+          <div class="db-name">locations</div>
+          <ul>
+            <li><span class="k">id</span><span class="t">PK</span></li>
+            <li><span class="k">department_id</span><span class="t">FK</span></li>
+            <li><span class="k">name</span><span class="t">UNIQUE</span></li>
+          </ul>
+        </div>
+        <div class="db-table highlight">
+          <div class="db-name">tool_types</div>
+          <ul>
+            <li><span class="k">id</span><span class="t">PK</span></li>
+            <li><span class="k">name</span><span class="t">UNIQUE</span></li>
+            <li><span class="k">attribute_schema</span><span class="t">JSON</span></li>
+          </ul>
+        </div>
+        <div class="db-table highlight">
+          <div class="db-name">tools</div>
+          <ul>
+            <li><span class="k">id</span><span class="t">PK</span></li>
+            <li><span class="k">name</span></li>
+            <li><span class="k">description</span></li>
+            <li><span class="k">tool_type_id</span><span class="t">FK</span></li>
+            <li><span class="k">attributes</span><span class="t">JSON</span></li>
+            <li><span class="k">notes</span></li>
+            <li><span class="k">reorder_min</span></li>
+          </ul>
+        </div>
+        <div class="db-table">
+          <div class="db-name">inventory</div>
+          <ul>
+            <li><span class="k">tool_id + location_id</span><span class="t">PK</span></li>
+            <li><span class="k">quantity</span><span class="t">CHECK ≥ 0</span></li>
+          </ul>
+        </div>
+        <div class="db-table">
+          <div class="db-name">activity_log</div>
+          <ul>
+            <li><span class="k">id</span><span class="t">PK</span></li>
+            <li><span class="k">timestamp</span></li>
+            <li><span class="k">badge_id</span></li>
+            <li><span class="k">action · entity · details</span></li>
+          </ul>
+        </div>
+      </div>
+      <p class="fine">locations.department_id → departments.id · tools.tool_type_id →
+         tool_types.id · inventory composites tool × location.</p>
+
+      <p>The two amber tables are the whole trick. <code>tool_types.attribute_schema</code>
+         is an ordered list of field definitions — a key, a label, and a type
+         of <code>text</code> or <code>number</code>. Every tool of that type
+         stores its values in <code>tools.attributes</code> against those keys.
+         The form renders itself from the schema, and validation coerces
+         values against it: numbers must be finite (bools, NaN, and
+         <code>Infinity</code> rejected), whole numbers stay integers, and
+         decimal values such as <code>0.250</code> round-trip exactly — the
+         difference between a ¼&nbsp;inch end mill and a 6.35&nbsp;mm one
+         matters.</p>
+
+      <div class="attr-compare">
+        <div class="attr-col">
+          <div class="attr-head">TYPE · CUTTING TOOLS</div>
+          <div class="attr-row"><span>diameter_mm</span><span>number</span></div>
+          <div class="attr-row"><span>flute_count</span><span>number</span></div>
+          <div class="attr-row"><span>shank_mm</span><span>number</span></div>
+          <div class="attr-row"><span>corner_radius_mm</span><span>number</span></div>
+          <div class="attr-row"><span>coating</span><span>text</span></div>
+          <div class="attr-row"><span>material</span><span>text</span></div>
+        </div>
+        <div class="attr-col">
+          <div class="attr-head">TYPE · MEASURING TOOLS</div>
+          <div class="attr-row"><span>range</span><span>text</span></div>
+          <div class="attr-row"><span>resolution</span><span>text</span></div>
+          <div class="attr-row"><span>calibration_due</span><span>text</span></div>
+        </div>
+      </div>
+      <p class="fine">Same <code>tools</code> table, two different attribute sets —
+         defined by the shop in the Admin screen, not by a migration.</p>
+    </section>
+
+    <section class="cs-section">
+      <span class="view-tag">DETAIL B</span>
+      <h2>Interface</h2>
+      <p>The UI is a small React SPA with four real screens. Each one is built
+         around a single shop-floor question.</p>
+
+      <figure class="shot">
+        <img src="img/search-all.png" width="2880" height="1800"
+             alt="Full tool list with type, key attributes, locations, and total quantity; a low-stock badge marks tools under their reorder minimum">
+        <figcaption><span class="fig-no">FIG. 02</span> The whole crib at a
+           glance — total quantities per tool, low-stock badges against each
+           tool&rsquo;s reorder minimum. Search, type/department/location
+           filters, print, and CSV export all live on this one screen.</figcaption>
+      </figure>
+
+      <figure class="shot">
+        <img src="img/tool-detail.png" width="2880" height="1800"
+             alt="Tool detail page: the end mill’s type-specific attributes on the left, its per-location stock on the right, and an activity history line showing who adjusted what">
+        <figcaption><span class="fig-no">FIG. 03</span> One tool, three answers:
+           <em>what is it</em> (attributes from its type schema), <em>where is
+           it</em> (stock per location), and <em>what happened to it</em>
+           (activity history with badge attribution).</figcaption>
+      </figure>
+
+      <figure class="shot">
+        <img src="img/tool-form.png" width="2880" height="1800"
+             alt="Add-tool form: attribute fields are generated from the selected tool type’s schema">
+        <figcaption><span class="fig-no">FIG. 04</span> The add-tool form has no
+           hardcoded attribute fields — pick a tool type and the form renders
+           that type&rsquo;s fields, already validated against its schema.</figcaption>
+      </figure>
+
+      <figure class="shot">
+        <img src="img/admin-tooltypes.png" width="2880" height="2820"
+             alt="Admin tool-types screen: defining a new type and editing attribute schemas for drill, end mill, grinding wheel, and micrometer types">
+        <figcaption><span class="fig-no">FIG. 05</span> Where the schema comes
+           from: admins add a type, then add text/number attributes to it. The
+           shop&rsquo;s vocabulary — not the developer&rsquo;s.</figcaption>
+      </figure>
+
+      <figure class="shot">
+        <img src="img/login.png" width="2880" height="1800"
+             alt="Login screen: scan or type a badge ID — no password field">
+        <figcaption><span class="fig-no">FIG. 06</span> Login is a badge scan.
+           Operators wear gloves; passwords at a shared kiosk would be real
+           friction.</figcaption>
+      </figure>
+    </section>
+
+    <section class="cs-section">
+      <span class="view-tag">DECISIONS</span>
+      <h2>Technical decisions</h2>
+      <p>Each of these is a trade-off made deliberately for the setting: a
+         small shop floor with one always-on Windows PC. They would be
+         different choices for an internet-facing app at scale.</p>
+      <ol class="decision-list">
+        <li>
+          <h3>Badge-only login, no passwords</h3>
+          <p>The audience is a physically controlled building; the alternative
+             — passwords for machine operators wearing gloves — is real
+             friction. Admin actions are gated separately from everyday use.
+             If the app ever left the LAN, a per-badge PIN would come first.</p>
+        </li>
+        <li>
+          <h3>JSON attributes instead of a fixed schema</h3>
+          <p>Adding a column per tool property would make every new tool type
+             a migration. Instead, types own an attribute schema and tools own
+             an attribute dict — the form, the validation, and the search all
+             read from the same schema. The cost is honest: attribute values
+             are searched with <code>json_each</code> rather than indexed
+             columns, which is the right trade at shop scale.</p>
+        </li>
+        <li>
+          <h3>One shared SQLite connection behind a lock</h3>
+          <p>Sync FastAPI endpoints run in a threadpool, so separate
+             connections per request could interleave transactions — an
+             exception raised inside one request&rsquo;s <code>with conn:</code>
+             would roll back another request&rsquo;s in-flight writes. Every
+             request shares one connection handed out under a
+             <code>threading.Lock</code> by a single dependency, which
+             serializes access. At a handful of concurrent users the lock is
+             never the bottleneck; past that, the fix is per-request
+             connections or Postgres — not more locks.</p>
+        </li>
+        <li>
+          <h3>SQLite in WAL mode, not a database server</h3>
+          <p>Zero install, the data is one file that&rsquo;s trivial to back up
+             — and the app backs it up automatically, daily, keeping the
+             newest 30. WAL lets readers proceed while a write is in flight.
+             Real foreign keys and CHECK constraints mean a move to Postgres
+             later is a migration, not a rewrite.</p>
+        </li>
+        <li>
+          <h3>Signed-cookie sessions with a stable secret</h3>
+          <p>Sessions are signed cookies, not server-side storage, and the
+             signing secret lives in a <code>session-secret</code> file — so
+             restarting the server doesn&rsquo;t log everyone out.
+             <code>SameSite=lax</code> plus a same-origin SPA keeps the CSRF
+             surface minimal.</p>
+        </li>
+        <li>
+          <h3>Ships as a portable folder, not a service</h3>
+          <p>The server PC is managed by non-developers. PyInstaller bundles
+             the API and the built UI into <code>dist\ToolDB</code>: copy the
+             folder, double-click the exe, no admin rights. Diagnostics go to
+             a log file; auto-start is plain Task Scheduler; disaster recovery
+             is documented as &ldquo;copy the folder, restore a backup
+             file.&rdquo;</p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="cs-section">
+      <span class="view-tag">SECTION C–C</span>
+      <h2>Challenges</h2>
+      <h3>&ldquo;Which fields?&rdquo; — every tool answers differently</h3>
+      <p>The defining problem. A single tool record has to hold an end
+         mill&rsquo;s flute count <em>and</em> a micrometer&rsquo;s calibration
+         date without null-ing its way through a hundred mostly-empty columns.
+         The implemented answer is the schema/attributes pair described above,
+         with validation that coerces values against each type&rsquo;s schema
+         and strips unknown keys — and search that reaches into the JSON so
+         typing &ldquo;TiAlN&rdquo; finds the right end mill.</p>
+      <h3>Silent lost writes in a threadpool</h3>
+      <p>Under load, routine 409 collisions could roll back another
+         request&rsquo;s in-flight writes — a bug that produces no error, just
+         missing rows. Tracing it led to the shared-connection-with-lock design,
+         which also closed a check-then-act race in the last-admin guard.</p>
+      <h3>Software that outlives its developer&rsquo;s presence</h3>
+      <p>The app has to be operable by the shop itself. That pushed work into
+         things that never show in a demo: a configuration file with sensible
+         defaults, an hourly-retrying auto-backup, a plain-text troubleshooting
+         and disaster-recovery guide shipped inside the build, and bootstrap
+         admin logins that survive restarts but can&rsquo;t resurrect a
+         deliberately deactivated account.</p>
+    </section>
+
+    <section class="cs-section">
+      <span class="view-tag">RESULTS</span>
+      <h2>Where it stands</h2>
+      <p>Implemented and verified in the repository:</p>
+      <ul class="feature-list">
+        <li><span class="feat-no">BUILT</span><div>Badge-ID login with signed-cookie sessions; separate admin gate; bulk employee import</div></li>
+        <li><span class="feat-no">BUILT</span><div>Search across names, descriptions, and attribute values; type/department/location filters</div></li>
+        <li><span class="feat-no">BUILT</span><div>Per-location inventory with a non-negative CHECK; per-tool reorder minimums with low-stock badges</div></li>
+        <li><span class="feat-no">BUILT</span><div>Shop-defined tool types with custom text/number attribute schemas, driving forms and validation</div></li>
+        <li><span class="feat-no">BUILT</span><div>Activity log with per-tool history; CSV export; print views; manual and daily automatic backups</div></li>
+        <li><span class="feat-no">BUILT</span><div>pytest API suite covering auth, tools, types, departments, employees, export, search, validation, and backups — running in CI on Ubuntu and Windows</div></li>
+      </ul>
+    </section>
+
+    <section class="cs-section">
+      <span class="view-tag">NOTES</span>
+      <h2>What I learned</h2>
+      <p>I came to software from a CNC machine, not a bootcamp, and this
+         project is the cleanest expression of that path. The domain
+         knowledge — what a flute count is, why calibration dates matter, why
+         operators won&rsquo;t tolerate a login form — came from standing at
+         the machine. The mathematics and data-science training showed up in
+         where it counts: modeling the attribute problem as data (a schema,
+         not columns), thinking about invariants and race conditions, and
+         writing validation that treats <code>0.250</code> and
+         <code>6.35</code> as first-class numbers. And building the whole
+         stack — React, FastAPI, SQLite, packaging, CI — end to end taught me
+         that the hardest part of shop software isn&rsquo;t the code. It&rsquo;s
+         being honest about how the floor actually works.</p>
+    </section>
+
+    <section class="cs-section">
+      <span class="view-tag">FUTURE REV</span>
+      <h2>Where it could go next</h2>
+      <p>Not built — candidate revisions, in the order I&rsquo;d reach for
+         them.</p>
+      <ul class="feature-list">
+        <li><span class="stamp planned">Proposed</span><div>Checkout / check-in — who has which tool <em>right now</em>, not just which location</div></li>
+        <li><span class="stamp planned">Proposed</span><div>Barcode or QR labels on crib bins, scanned into search and inventory counts</div></li>
+        <li><span class="stamp planned">Proposed</span><div>Calibration reminders — measuring-tool types already carry a <code>calibration_due</code> attribute; surfacing it as an alert is a small step</div></li>
+        <li><span class="stamp planned">Proposed</span><div>Usage history and consumption reporting — which tools burn fastest, per machine and per department</div></li>
+        <li><span class="stamp planned">Proposed</span><div>Indexed attribute search or materialized columns if attribute search volume ever outgrows <code>json_each</code></div></li>
+      </ul>
+    </section>
+
+    <section class="cs-section">
+      <div class="card-links">
+        <a class="card-link" href="https://github.com/BraynerSantos/tool-tracking">→ github.com/BraynerSantos/tool-tracking</a>
+        <a class="card-link secondary" href="../../">← Back to sheet 01</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="titleblock">
+      <div><span class="tb-label">Drawn by</span><span class="tb-value">B. Santos</span></div>
+      <div><span class="tb-label">Rev</span><span class="tb-value">2026.09</span></div>
+      <div><span class="tb-label">Scale</span><span class="tb-value">1:1</span></div>
+      <div><span class="tb-label">Sheet</span><span class="tb-value">2 of 2</span></div>
+    </div>
+    <p class="colophon">© 2026 Brayner Santos · <a href="../../">braynersantos.com</a> · <a href="https://github.com/BraynerSantos">github.com/BraynerSantos</a></p>
+  </footer>
+</body>
+</html>

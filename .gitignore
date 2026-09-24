@@ -1,0 +1,6 @@
+.wrangler/
+node_modules/
+Thumbs.db
+docs/
+claude.md
+CLAUDE.md
